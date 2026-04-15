@@ -1,4 +1,4 @@
-import { auth, provider, signInWithPopup } from "../firebase.js";
+import { auth, provider, signInWithPopup, signOut } from "../firebase.js";
 
 export default function Auth({ onSuccess } = {}) {
     if (document.getElementById("auth-modal-backdrop")) return;
@@ -23,7 +23,7 @@ export default function Auth({ onSuccess } = {}) {
                 </svg>
                 <span id="google-signin-label">Sign in with Google</span>
             </button>
-            <p id="auth-error" style="font-size:0.8rem; color:var(--red); text-align:center; margin:0; display:none;"></p>
+            <p id="auth-error" style="font-size:0.8rem; color:var(--red); text-align:center; margin-top:1rem; display:none;"></p>
         </div>
     `;
 
@@ -39,9 +39,19 @@ export default function Auth({ onSuccess } = {}) {
         errEl.style.display = "none";
 
         try {
-            await signInWithPopup(auth, provider);
-            backdrop.remove();
-            onSuccess?.();
+            const result = await signInWithPopup(auth, provider);
+            const user = result.user;
+
+            // Check if the email ends with the required domain
+            if (user.email && user.email.endsWith("@oscodaschools.org")) {
+                backdrop.remove();
+                onSuccess?.();
+            } else {
+                // If it's the wrong domain, sign them out immediately
+                await signOut(auth);
+                throw new Error("Access denied. Please use an @oscodaschools.org account.");
+            }
+            
         } catch (err) {
             errEl.textContent = err.message;
             errEl.style.display = "block";
