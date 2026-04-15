@@ -1,24 +1,36 @@
-import { supabase } from "../app.js";
-import Auth from "../components/Auth.js";
+import { auth } from "../app.js";
+import { db } from "../firebase.js";
+import {
+    collection, doc, getDoc, getDocs, setDoc, updateDoc, addDoc, query, where
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+import Auth from "../../components/Auth.js";
 
 const TBA_KEY = "0n75QTuNDDuPGQ42UG8GDbxmVlPGtCMnd67fSCcH04AgVMSWwgJPCdtRwjiKYO9b";
-const TEAM = "frc7250";
+const TEAM    = "frc7250";
 
 function getAppRoot() { return document.getElementById("app") || document.body; }
 
 async function fetchEvents() {
     try {
-        const res = await fetch(`https://www.thebluealliance.com/api/v3/team/${TEAM}/events/2026`, { headers: { "X-TBA-Auth-Key": TBA_KEY } });
+        const res = await fetch(`https://www.thebluealliance.com/api/v3/team/${TEAM}/events/2026`,
+            { headers: { "X-TBA-Auth-Key": TBA_KEY } });
         return res.ok ? await res.json() : [];
     } catch {
         return [];
     }
 }
 
+// Returns "First Last" from the signed-in Google user
+function getScouterName() {
+    const user = auth.currentUser;
+    return user?.displayName || user?.email || "Unknown";
+}
+
 async function renderScoutForm() {
-    const events = await fetchEvents();
+    const events       = await fetchEvents();
+    const scouterName  = getScouterName();
     const eventOptions = events.length
-        ? events.map(e => `<option value="${e.key}">${e.name} (${e.key})</option>`).join('')
+        ? events.map(e => `<option value="${e.key}">${e.name} (${e.key})</option>`).join("")
         : `<option value="">No events found</option>`;
 
     return `
@@ -26,13 +38,14 @@ async function renderScoutForm() {
             <div class="page-header-row">
                 <h1 class="page-title">Scout Entry</h1>
 
-                <div class="auth-tabs" style="width: 300px; margin-bottom: 0;">
-                    <button class="auth-tab active" id="tab-pit" type="button">Pit Scouting</button>
-                    <button class="auth-tab" id="tab-stands" type="button">Stands Scouting</button>
+                <div class="auth-tabs" style="width:300px; margin-bottom:0;">
+                    <button class="auth-tab active" id="tab-pit"    type="button">Pit Scouting</button>
+                    <button class="auth-tab"         id="tab-stands" type="button">Stands Scouting</button>
                 </div>
             </div>
 
-            <form id="form-pit" class="scout-form" style="margin-top: 1.5rem; display: flex;">
+            <!-- ── PIT FORM ── -->
+            <form id="form-pit" class="scout-form" style="margin-top:1.5rem; display:flex;">
                 <div class="scout-meta-bar">
                     <div class="scout-meta-field">
                         <label class="scout-label">Event</label>
@@ -43,7 +56,8 @@ async function renderScoutForm() {
                     </div>
                     <div class="scout-meta-field">
                         <label class="scout-label">Scouter Name</label>
-                        <input class="scout-input" type="text" id="pit-scouter" required placeholder="Your name">
+                        <input class="scout-input" type="text" id="pit-scouter" value="${scouterName}" readonly
+                               style="opacity:0.7; cursor:not-allowed;">
                     </div>
                     <div class="scout-meta-field">
                         <label class="scout-label">Resubmission</label>
@@ -209,10 +223,11 @@ async function renderScoutForm() {
                     </div>
                 </div>
 
-                <button type="submit" class="btn btn-primary" id="btn-submit-pit" style="margin-top: 1rem;">Submit Pit Data</button>
+                <button type="submit" class="btn btn-primary" id="btn-submit-pit" style="margin-top:1rem;">Submit Pit Data</button>
             </form>
 
-            <form id="form-stands" class="scout-form" style="margin-top: 1.5rem; display: none;">
+            <!-- ── STANDS FORM ── -->
+            <form id="form-stands" class="scout-form" style="margin-top:1.5rem; display:none;">
                 <div class="scout-meta-bar">
                     <div class="scout-meta-field">
                         <label class="scout-label">Event</label>
@@ -223,7 +238,8 @@ async function renderScoutForm() {
                     </div>
                     <div class="scout-meta-field">
                         <label class="scout-label">Scouter Name</label>
-                        <input class="scout-input" type="text" id="stands-scouter" required placeholder="Your name">
+                        <input class="scout-input" type="text" id="stands-scouter" value="${scouterName}" readonly
+                               style="opacity:0.7; cursor:not-allowed;">
                     </div>
                 </div>
 
@@ -315,40 +331,36 @@ async function renderScoutForm() {
                                 <span class="toggle-track"><span class="toggle-thumb"></span></span>
                             </label>
                         </div>
-                        <div class="scout-field scout-field--full" style="padding-bottom: 1.5rem;">
+                        <div class="scout-field scout-field--full" style="padding-bottom:1.5rem;">
                             <label class="scout-label">Shot Consistency (1-10)</label>
-                            <div style="display: flex; gap: 1.5rem; align-items: center; margin-top: 0.5rem;">
-                                <input type="range" id="stands-shot-consist" min="1" max="10" value="5" style="flex: 1; cursor: pointer;">
-                                <span id="stands-shot-val" class="mono" style="font-size: 1.2rem; font-weight: 600; color: var(--orange);">5</span>
+                            <div style="display:flex; gap:1.5rem; align-items:center; margin-top:0.5rem;">
+                                <input type="range" id="stands-shot-consist" min="1" max="10" value="5" style="flex:1; cursor:pointer;">
+                                <span id="stands-shot-val" class="mono" style="font-size:1.2rem; font-weight:600; color:var(--orange);">5</span>
                             </div>
                         </div>
                     </div>
                 </div>
 
-                <button type="submit" class="btn btn-primary" id="btn-submit-stands" style="margin-top: 1rem;">Submit Match Data</button>
+                <button type="submit" class="btn btn-primary" id="btn-submit-stands" style="margin-top:1rem;">Submit Match Data</button>
             </form>
         </div>
     `;
 }
 
 function bindForm() {
-    const tabPit    = document.getElementById("tab-pit");
-    const tabStands = document.getElementById("tab-stands");
-    const formPit   = document.getElementById("form-pit");
+    const tabPit     = document.getElementById("tab-pit");
+    const tabStands  = document.getElementById("tab-stands");
+    const formPit    = document.getElementById("form-pit");
     const formStands = document.getElementById("form-stands");
 
     tabPit.addEventListener("click", () => {
-        tabPit.classList.add("active");
-        tabStands.classList.remove("active");
-        formPit.style.display = "flex";
-        formStands.style.display = "none";
+        tabPit.classList.add("active");    tabStands.classList.remove("active");
+        formPit.style.display = "flex";   formStands.style.display = "none";
     });
 
     tabStands.addEventListener("click", () => {
-        tabStands.classList.add("active");
-        tabPit.classList.remove("active");
-        formStands.style.display = "flex";
-        formPit.style.display = "none";
+        tabStands.classList.add("active"); tabPit.classList.remove("active");
+        formStands.style.display = "flex"; formPit.style.display = "none";
     });
 
     const shotSlider    = document.getElementById("stands-shot-consist");
@@ -356,21 +368,22 @@ function bindForm() {
     shotSlider.addEventListener("input", (e) => { shotSliderVal.textContent = e.target.value; });
 
     const resubmitToggle = document.getElementById("pit-is-resubmit");
-    const reqFields = document.querySelectorAll(".req-pit");
+    const reqFields      = document.querySelectorAll(".req-pit");
 
     resubmitToggle.addEventListener("change", (e) => {
         reqFields.forEach(f => { f.required = !e.target.checked; });
     });
 
+    // ── PIT SUBMIT ──────────────────────────────────────────────────────────
     formPit.addEventListener("submit", async (e) => {
         e.preventDefault();
         const btn = document.getElementById("btn-submit-pit");
         btn.disabled = true;
         btn.textContent = "Processing...";
 
-        const eventId   = document.getElementById("pit-event-id").value;
-        const teamNum   = parseInt(document.getElementById("pit-team-num").value);
-        const scouter   = document.getElementById("pit-scouter").value.trim();
+        const eventId    = document.getElementById("pit-event-id").value;
+        const teamNum    = parseInt(document.getElementById("pit-team-num").value);
+        const scouter    = getScouterName();
         const isResubmit = resubmitToggle.checked;
 
         const getVal = (id) => {
@@ -379,55 +392,57 @@ function bindForm() {
         };
 
         let payload = {
-            "Team Number":           teamNum,
-            "Team Name":             getVal("pit-team-name"),
-            "Team Location":         getVal("pit-team-loc"),
-            "Robot Name":            getVal("pit-bot-name"),
-            "Drive Train":           getVal("pit-drive-train"),
+            "Team Number":             teamNum,
+            "Team Name":               getVal("pit-team-name"),
+            "Team Location":           getVal("pit-team-loc"),
+            "Robot Name":              getVal("pit-bot-name"),
+            "Drive Train":             getVal("pit-drive-train"),
             "Fire Rate (Ball/Second)": getVal("pit-fire-rate") !== null ? parseFloat(getVal("pit-fire-rate")) : null,
-            "Ball Capacity":         getVal("pit-ball-cap")   !== null ? parseFloat(getVal("pit-ball-cap"))   : null,
-            "Intake Type":           getVal("pit-intake-type"),
-            "Pick Up Method":        getVal("pit-pickup"),
-            "Cycles":                getVal("pit-cycles")     !== null ? parseFloat(getVal("pit-cycles"))     : null,
-            "L1":                    document.getElementById("pit-c-l1").checked,
-            "L2":                    document.getElementById("pit-c-l2").checked,
-            "L3":                    document.getElementById("pit-c-l3").checked,
-            "Auton Climb":           document.getElementById("pit-c-auton").checked,
-            "Time to Climb":         getVal("pit-climb-time") !== null ? parseFloat(getVal("pit-climb-time")) : null,
-            "Climb Area":            getVal("pit-climb-area"),
-            "Pref Start Spot":       getVal("pit-pref-start"),
-            "Driver Exp":            getVal("pit-driver-exp") !== null ? parseInt(getVal("pit-driver-exp"))   : null,
-            "Defense?":              document.getElementById("pit-defense").checked,
+            "Ball Capacity":           getVal("pit-ball-cap")  !== null ? parseFloat(getVal("pit-ball-cap"))  : null,
+            "Intake Type":             getVal("pit-intake-type"),
+            "Pick Up Method":          getVal("pit-pickup"),
+            "Cycles":                  getVal("pit-cycles")    !== null ? parseFloat(getVal("pit-cycles"))    : null,
+            "L1":                      document.getElementById("pit-c-l1").checked,
+            "L2":                      document.getElementById("pit-c-l2").checked,
+            "L3":                      document.getElementById("pit-c-l3").checked,
+            "Auton Climb":             document.getElementById("pit-c-auton").checked,
+            "Time to Climb":           getVal("pit-climb-time") !== null ? parseFloat(getVal("pit-climb-time")) : null,
+            "Climb Area":              getVal("pit-climb-area"),
+            "Pref Start Spot":         getVal("pit-pref-start"),
+            "Driver Exp":              getVal("pit-driver-exp") !== null ? parseInt(getVal("pit-driver-exp")) : null,
+            "Defense?":                document.getElementById("pit-defense").checked,
         };
 
+        // Remove null fields
         Object.keys(payload).forEach(k => { if (payload[k] === null) delete payload[k]; });
 
         try {
-            if (isResubmit) {
-                const { data: existing, error: fetchErr } = await supabase
-                    .from(`${eventId}-pit`).select("*").eq("Team Number", teamNum).single();
-                if (fetchErr) throw new Error(`Could not find team ${teamNum} in table ${eventId} to resubmit.`);
+            const collRef  = collection(db, `${eventId}-pit`);
+            // Use team number as doc ID so resubmits overwrite the same doc
+            const docRef   = doc(collRef, String(teamNum));
 
-                const existingScouters = existing.Scouters ? existing.Scouters.split(", ") : [];
+            if (isResubmit) {
+                const existing = await getDoc(docRef);
+                if (!existing.exists()) throw new Error(`Team ${teamNum} not found in ${eventId}-pit.`);
+
+                const existingScouters = existing.data().Scouters
+                    ? existing.data().Scouters.split(", ")
+                    : [];
                 if (!existingScouters.includes(scouter)) existingScouters.push(scouter);
                 payload.Scouters = existingScouters.join(", ");
 
-                const { error: upErr } = await supabase
-                    .from(`${eventId}-pit`).update(payload).eq("Team Number", teamNum);
-                if (upErr) throw upErr;
+                await updateDoc(docRef, payload);
                 alert("Pit resubmission successful!");
             } else {
                 payload.Scouters = scouter;
-                const { error: inErr } = await supabase.from(`${eventId}-pit`).insert([payload]);
-                if (inErr) throw inErr;
+                await setDoc(docRef, payload);
                 alert("New pit entry saved!");
             }
 
-            const cachedEvent   = document.getElementById("pit-event-id").value;
-            const cachedScouter = document.getElementById("pit-scouter").value;
+            const cachedEvent = document.getElementById("pit-event-id").value;
             formPit.reset();
-            document.getElementById("pit-event-id").value  = cachedEvent;
-            document.getElementById("pit-scouter").value   = cachedScouter;
+            document.getElementById("pit-event-id").value = cachedEvent;
+            document.getElementById("pit-scouter").value  = scouter;
 
         } catch (err) {
             alert(`Error: ${err.message}`);
@@ -437,6 +452,7 @@ function bindForm() {
         }
     });
 
+    // ── STANDS SUBMIT ────────────────────────────────────────────────────────
     formStands.addEventListener("submit", async (e) => {
         e.preventDefault();
         const btn = document.getElementById("btn-submit-stands");
@@ -446,34 +462,34 @@ function bindForm() {
         const eventId  = document.getElementById("stands-event-id").value;
         const matchStr = `${document.getElementById("stands-match-type").value}${document.getElementById("stands-match-num").value}`;
         const climbVal = document.getElementById("stands-climb").value;
+        const scouter  = getScouterName();
 
         const payload = {
-            "Team Number":     parseInt(document.getElementById("stands-team-num").value),
-            "Match":           matchStr,
-            "Scouters":        document.getElementById("stands-scouter").value.trim(),
-            "Auto Start":      document.getElementById("stands-auto-start").value,
-            "Auto End":        document.getElementById("stands-auto-end").value,
-            "Auto Success":    document.getElementById("stands-auto-success").checked,
-            "Cycles":          parseInt(document.getElementById("stands-cycles").value),
-            "Climb":           climbVal,
-            "Climbed?":        ["L1", "L2", "L3"].includes(climbVal), // Logic added here
-            "Defended?":       document.getElementById("stands-defended").checked,
-            "Broke Down?":     document.getElementById("stands-broke-down").checked,
+            "Team Number":      parseInt(document.getElementById("stands-team-num").value),
+            "Match":            matchStr,
+            "Scouters":         scouter,
+            "Auto Start":       document.getElementById("stands-auto-start").value,
+            "Auto End":         document.getElementById("stands-auto-end").value,
+            "Auto Success":     document.getElementById("stands-auto-success").checked,
+            "Cycles":           parseInt(document.getElementById("stands-cycles").value),
+            "Climb":            climbVal,
+            "Climbed?":         ["L1", "L2", "L3"].includes(climbVal),
+            "Defended?":        document.getElementById("stands-defended").checked,
+            "Broke Down?":      document.getElementById("stands-broke-down").checked,
             "Shot Consistency": parseInt(document.getElementById("stands-shot-consist").value),
         };
 
         try {
-            const { error: inErr } = await supabase.from(`${eventId}-stands`).insert([payload]);
-            if (inErr) throw inErr;
+            // Stands entries are multi-doc (one per match), so use addDoc
+            await addDoc(collection(db, `${eventId}-stands`), payload);
             alert(`Match ${matchStr} data saved successfully!`);
 
-            const cachedEvent   = document.getElementById("stands-event-id").value;
-            const cachedScouter = document.getElementById("stands-scouter").value;
-            const cachedType    = document.getElementById("stands-match-type").value;
+            const cachedEvent = document.getElementById("stands-event-id").value;
+            const cachedType  = document.getElementById("stands-match-type").value;
             formStands.reset();
-            document.getElementById("stands-event-id").value    = cachedEvent;
-            document.getElementById("stands-scouter").value     = cachedScouter;
-            document.getElementById("stands-match-type").value  = cachedType;
+            document.getElementById("stands-event-id").value   = cachedEvent;
+            document.getElementById("stands-scouter").value    = scouter;
+            document.getElementById("stands-match-type").value = cachedType;
             shotSliderVal.textContent = "5";
 
         } catch (err) {
@@ -486,21 +502,20 @@ function bindForm() {
 }
 
 export default async function ScoutEntry() {
-    const { data: { session } } = await supabase.auth.getSession();
+    const user = auth.currentUser;
 
-    if (!session) {
+    if (!user) {
         setTimeout(() => {
             Auth({
                 onSuccess: async () => {
-                    const { data: { session: newSession } } = await supabase.auth.getSession();
-                    if (newSession) {
+                    if (auth.currentUser) {
                         getAppRoot().innerHTML = await renderScoutForm();
                         bindForm();
                     }
                 }
             });
         }, 0);
-        return `<div class="page"><h1 class="page-title">Auth Required</h1><p>Please log in.</p></div>`;
+        return `<div class="page"><h1 class="page-title">Auth Required</h1><p>Please sign in with Google to continue.</p></div>`;
     }
 
     const formHTML = await renderScoutForm();

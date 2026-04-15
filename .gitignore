@@ -1,0 +1,11 @@
+/node_modules
+package.json
+package-lock.json
+*.log
+.env
+firestore.rules
+firestore.indexes.json
+firebase.json
+/.firebase
+.firebaserc
+public/firebase.js

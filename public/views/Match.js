@@ -1,10 +1,14 @@
-import { supabase } from "../app.js";
+import { db } from "../firebase.js";
+import {
+    collection, getDocs, query, where
+} from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
 const TBA_KEY = "0n75QTuNDDuPGQ42UG8GDbxmVlPGtCMnd67fSCcH04AgVMSWwgJPCdtRwjiKYO9b";
-const TEAM = "frc7250";
+const TEAM    = "frc7250";
 
 async function tba(endpoint) {
-    const res = await fetch(`https://www.thebluealliance.com/api/v3${endpoint}`, { headers: { "X-TBA-Auth-Key": TBA_KEY } });
+    const res = await fetch(`https://www.thebluealliance.com/api/v3${endpoint}`,
+        { headers: { "X-TBA-Auth-Key": TBA_KEY } });
     return res.ok ? res.json() : null;
 }
 
@@ -28,24 +32,56 @@ function statRow(label, value) {
     return `<tr><td>${label}</td><td class="mono">${value}</td></tr>`;
 }
 
-// Derive playstyle from stands data
 function playstyle(standsRows) {
     if (!standsRows.length) return { label: "Unknown", color: "var(--muted)" };
-    const defPct   = pct(standsRows.map(r => r["Defended?"]));
+    const defPct    = pct(standsRows.map(r => r["Defended?"]));
     const avgCycles = avg(standsRows.map(r => r["Cycles Per Match"]));
-    if (defPct >= 50)  return { label: "DEF",    color: "var(--blue)" };
-    if (avgCycles >= 8) return { label: "OFF",    color: "#22c55e" };
-    if (defPct >= 25)  return { label: "HYBRID", color: "var(--orange)" };
+    if (defPct >= 50)    return { label: "DEF",    color: "var(--blue)" };
+    if (avgCycles >= 8)  return { label: "OFF",    color: "#22c55e" };
+    if (defPct >= 25)    return { label: "HYBRID", color: "var(--orange)" };
     return { label: "OFF", color: "#22c55e" };
 }
 
-// Reliability: 50% no-breakdown + 30% climb rate + 20% auto success
 function reliability(standsRows) {
     if (!standsRows.length) return null;
     const brokeDown = pct(standsRows.map(r => r["Broke Down?"]));
     const climbed   = pct(standsRows.map(r => r["Climbed?"]));
     const autoOk    = pct(standsRows.map(r => r["Auto Success"]));
     return ((100 - brokeDown) * 0.5) + (climbed * 0.3) + (autoOk * 0.2);
+}
+
+// ── Firestore helpers ──────────────────────────────────────────────────────
+
+async function getPitRows(eventKey, teamNums) {
+    const snap = await getDocs(
+        query(collection(db, `${eventKey}-pit`),
+              where("Team Number", "in", teamNums))
+    );
+    return snap.docs.map(d => d.data());
+}
+
+async function getStandsRows(eventKey, teamNums) {
+    const snap = await getDocs(
+        query(collection(db, `${eventKey}-stands`),
+              where("Team Number", "in", teamNums))
+    );
+    return snap.docs.map(d => d.data());
+}
+
+async function getPitRowsSingle(eventKey, teamNum) {
+    const snap = await getDocs(
+        query(collection(db, `${eventKey}-pit`),
+              where("Team Number", "==", teamNum))
+    );
+    return snap.docs.map(d => d.data());
+}
+
+async function getStandsRowsSingle(eventKey, teamNum) {
+    const snap = await getDocs(
+        query(collection(db, `${eventKey}-stands`),
+              where("Team Number", "==", teamNum))
+    );
+    return snap.docs.map(d => d.data());
 }
 
 // ── Modal shell ───────────────────────────────────────────────────────────
@@ -63,7 +99,7 @@ function openModal(title, htmlContent) {
     }
 
     backdrop.innerHTML = `
-        <div class="modal" role="dialog" style="margin: auto; z-index: 201;">
+        <div class="modal" role="dialog" style="margin:auto; z-index:201;">
             <div class="modal-header">
                 <span class="modal-title">${title}</span>
                 <button class="modal-close" id="sn-modal-close">✕</button>
@@ -76,7 +112,7 @@ function openModal(title, htmlContent) {
     backdrop.addEventListener("click", (e) => { if (e.target === backdrop) backdrop.classList.remove("open"); });
 }
 
-// ── Team detail modal content ─────────────────────────────────────────────
+// ── Team detail modal ─────────────────────────────────────────────────────
 
 function buildTeamModal(team, pit, standsRows, tbaRank) {
     const avgCycles    = avg(standsRows.map(r => r["Cycles Per Match"]));
@@ -88,8 +124,7 @@ function buildTeamModal(team, pit, standsRows, tbaRank) {
     const reliab       = reliability(standsRows);
     const style        = playstyle(standsRows);
     const matchCount   = standsRows.length;
-
-    const tbaRankStr = tbaRank ? `#${tbaRank.rank}` : "—";
+    const tbaRankStr   = tbaRank ? `#${tbaRank.rank}` : "—";
 
     const styleBadge = `<span class="result-tag" style="background:${style.color}22; color:${style.color}; font-size:0.8rem; padding:0.2rem 0.6rem;">${style.label}</span>`;
 
@@ -139,19 +174,19 @@ function buildTeamModal(team, pit, standsRows, tbaRank) {
                 <table class="sn-pro modal-table">
                     <thead><tr><th>Field</th><th>Value</th></tr></thead>
                     <tbody>
-                        ${statRow("Team Name",         pit["Team Name"]              || "—")}
-                        ${statRow("Drive Train",        pit["Drive Train"]            || "—")}
+                        ${statRow("Team Name",         pit["Team Name"]               || "—")}
+                        ${statRow("Drive Train",        pit["Drive Train"]             || "—")}
                         ${statRow("Fire Rate",          pit["Fire Rate (Ball/Second)"] != null ? pit["Fire Rate (Ball/Second)"] + " b/s" : "—")}
-                        ${statRow("Ball Capacity",      pit["Ball Capacity"]          ?? "—")}
-                        ${statRow("Intake Type",        pit["Intake Type"]            || "—")}
-                        ${statRow("Pick Up Method",     pit["Pick Up Method"]         || "—")}
-                        ${statRow("Climb Area",         pit["Climb Area"]             || "—")}
+                        ${statRow("Ball Capacity",      pit["Ball Capacity"]           ?? "—")}
+                        ${statRow("Intake Type",        pit["Intake Type"]             || "—")}
+                        ${statRow("Pick Up Method",     pit["Pick Up Method"]          || "—")}
+                        ${statRow("Climb Area",         pit["Climb Area"]              || "—")}
                         ${statRow("Time to Climb",      pit["Time to Climb"]  != null ? pit["Time to Climb"] + "s" : "—")}
-                        ${statRow("L1 / L2 / L3",      `${pit["L1"] ? "✓" : "✗"} / ${pit["L2"] ? "✓" : "✗"} / ${pit["L3"] ? "✓" : "✗"}`)}
-                        ${statRow("Auton Climb",        pit["Auton Climb"]   ? "✓" : "✗")}
-                        ${statRow("Driver Exp",         pit["Driver Exp"]    != null ? pit["Driver Exp"] + " yr" : "—")}
-                        ${statRow("Pref Start Spot",    pit["Pref Start Spot"]        || "—")}
-                        ${statRow("Willing to Defend",  pit["Defense?"]      ? "Yes" : "No")}
+                        ${statRow("L1 / L2 / L3",       `${pit["L1"] ? "✓" : "✗"} / ${pit["L2"] ? "✓" : "✗"} / ${pit["L3"] ? "✓" : "✗"}`)}
+                        ${statRow("Auton Climb",        pit["Auton Climb"]    ? "✓" : "✗")}
+                        ${statRow("Driver Exp",         pit["Driver Exp"]     != null ? pit["Driver Exp"] + " yr" : "—")}
+                        ${statRow("Pref Start Spot",    pit["Pref Start Spot"]         || "—")}
+                        ${statRow("Willing to Defend",  pit["Defense?"]       ? "Yes" : "No")}
                     </tbody>
                 </table>
             </div>
@@ -168,10 +203,10 @@ function buildTeamModal(team, pit, standsRows, tbaRank) {
                     <thead><tr><th>Match</th><th>Cycles</th><th>Shot</th><th>Climb</th><th>Auto</th><th>Def</th><th>💀</th></tr></thead>
                     <tbody>
                         ${standsRows.map(r => `<tr>
-                            <td class="mono">${r["Match"] || "—"}</td>
-                            <td>${r["Cycles Per Match"] ?? "—"}</td>
-                            <td>${r["Shot Consistency"]  ?? "—"}</td>
-                            <td>${r["Stands Climb"]       || "—"}</td>
+                            <td class="mono">${r["Match"]           || "—"}</td>
+                            <td>${r["Cycles Per Match"]             ?? "—"}</td>
+                            <td>${r["Shot Consistency"]             ?? "—"}</td>
+                            <td>${r["Stands Climb"]                 || "—"}</td>
                             <td>${r["Auto Success"]  ? "✓" : "✗"}</td>
                             <td>${r["Defended?"]      ? "✓" : "✗"}</td>
                             <td>${r["Broke Down?"]    ? "✓" : "✗"}</td>
@@ -187,7 +222,7 @@ function buildTeamModal(team, pit, standsRows, tbaRank) {
     return html;
 }
 
-// ── Alliance summary modal content ────────────────────────────────────────
+// ── Alliance summary modal ────────────────────────────────────────────────
 
 function buildAllianceModal(matchData, pitByTeam, standsByTeam) {
     let html = "";
@@ -229,12 +264,12 @@ function buildAllianceModal(matchData, pitByTeam, standsByTeam) {
                         <table class="sn-pro modal-table">
                             <thead><tr><th>Metric</th><th>Value</th></tr></thead>
                             <tbody>
-                                ${statRow("Drive Train",       pit?.["Drive Train"]            || "—")}
-                                ${statRow("Ball Capacity",     pit?.["Ball Capacity"]          ?? "—")}
-                                ${statRow("Intake Type",       pit?.["Intake Type"]            || "—")}
+                                ${statRow("Drive Train",       pit?.["Drive Train"]        || "—")}
+                                ${statRow("Ball Capacity",     pit?.["Ball Capacity"]      ?? "—")}
+                                ${statRow("Intake Type",       pit?.["Intake Type"]        || "—")}
                                 ${statRow("Auton Climb",       pit ? (pit["Auton Climb"] ? "✓" : "✗") : "—")}
                                 ${statRow("Avg Cycles",        fmt(avgCycles))}
-                                ${statRow("Climb Area",        pit?.["Climb Area"]             || "—")}
+                                ${statRow("Climb Area",        pit?.["Climb Area"]         || "—")}
                                 ${statRow("Willing to Defend", pit ? (pit["Defense?"] ? "Yes" : "No") : "—")}
                             </tbody>
                         </table>
@@ -264,7 +299,6 @@ export default async function Match() {
                 tba(`/team/${TEAM}/districts`)
             ]);
 
-            // Overall record
             let totalWins = 0, totalLosses = 0, totalTies = 0;
             Object.values(statuses || {}).forEach(status => {
                 if (!status) return;
@@ -280,7 +314,6 @@ export default async function Match() {
                 }
             });
 
-            // District rank & points
             let stateRankStr = "N/A", districtPoints = 0;
             if (districts?.length) {
                 const currentDistrict = districts.find(d => d.year === 2026) || districts[0];
@@ -300,7 +333,6 @@ export default async function Match() {
                 </div>
             `;
 
-            // Load all matches across all events
             let allMatches = [];
             for (const ev of (events || [])) {
                 const m = await tba(`/team/${TEAM}/event/${ev.key}/matches`);
@@ -308,19 +340,18 @@ export default async function Match() {
             }
             allMatches.sort((a, b) => (a.actual_time || 0) - (b.actual_time || 0));
 
-            // Render match cards
             const renderMatches = (matches) => {
                 if (!matches.length) return `<p class="state-msg">No matches found.</p>`;
                 return matches.map(m => {
-                    const matchLabel  = m.key.split("_")[1]?.toUpperCase() ?? m.key;
-                    const weAreRed    = m.alliances.red.team_keys.includes(TEAM);
-                    const weAreBlue   = m.alliances.blue.team_keys.includes(TEAM);
-                    const ourSide     = weAreRed ? "red" : weAreBlue ? "blue" : null;
-                    let resultTag     = "";
+                    const matchLabel = m.key.split("_")[1]?.toUpperCase() ?? m.key;
+                    const weAreRed   = m.alliances.red.team_keys.includes(TEAM);
+                    const weAreBlue  = m.alliances.blue.team_keys.includes(TEAM);
+                    const ourSide    = weAreRed ? "red" : weAreBlue ? "blue" : null;
+                    let resultTag    = "";
                     if (ourSide && m.winning_alliance) {
-                        if      (m.winning_alliance === ourSide)  resultTag = `<span class="result-tag win">W</span>`;
-                        else if (m.winning_alliance !== "")        resultTag = `<span class="result-tag loss">L</span>`;
-                        else                                       resultTag = `<span class="result-tag tie">T</span>`;
+                        if      (m.winning_alliance === ourSide) resultTag = `<span class="result-tag win">W</span>`;
+                        else if (m.winning_alliance !== "")      resultTag = `<span class="result-tag loss">L</span>`;
+                        else                                     resultTag = `<span class="result-tag tie">T</span>`;
                     }
 
                     const pillRow = (keys, color) => keys.map(k => {
@@ -336,8 +367,8 @@ export default async function Match() {
                                 ${resultTag}
                             </div>
                             <div class="match-alliances">
-                                <div class="alliance-block red${m.winning_alliance === "red" ? " won" : ""}">
-                                    <div class="alliance-teams">${pillRow(m.alliances.red.team_keys, "red")}</div>
+                                <div class="alliance-block red${m.winning_alliance === "red"  ? " won" : ""}">
+                                    <div class="alliance-teams">${pillRow(m.alliances.red.team_keys,  "red")}</div>
                                     <div class="alliance-score">${m.alliances.red.score  >= 0 ? m.alliances.red.score  : "—"}</div>
                                 </div>
                                 <div class="alliance-block blue${m.winning_alliance === "blue" ? " won" : ""}">
@@ -358,12 +389,10 @@ export default async function Match() {
                 listContainer.innerHTML = renderMatches(allMatches.filter(m => m.key.toLowerCase().includes(q)));
             });
 
-            // Click delegation for modals
             document.body.addEventListener("click", async (e) => {
                 const matchHeader = e.target.closest(".match-card-header");
                 const teamPill    = e.target.closest(".team-pill");
 
-                // Alliance summary modal
                 if (matchHeader) {
                     const matchKey  = matchHeader.dataset.match;
                     const eventKey  = matchHeader.dataset.event;
@@ -377,23 +406,22 @@ export default async function Match() {
                         ...matchData.alliances.blue.team_keys
                     ].map(k => Number(k.replace("frc", "")));
 
-                    const [{ data: pitRows }, { data: standsRows }] = await Promise.all([
-                        supabase.from(`${eventKey}-pit`).select("*").in("Team Number", allNums),
-                        supabase.from(`${eventKey}-stands`).select("*").in("Team Number", allNums),
+                    const [pitRows, standsRows] = await Promise.all([
+                        getPitRows(eventKey, allNums),
+                        getStandsRows(eventKey, allNums),
                     ]);
 
                     const pitByTeam = {}, standsByTeam = {};
                     allNums.forEach(n => {
                         const t = String(n);
-                        pitByTeam[t]    = (pitRows    || []).find(r => String(r["Team Number"]) === t) || null;
-                        standsByTeam[t] = (standsRows || []).filter(r => String(r["Team Number"]) === t);
+                        pitByTeam[t]    = pitRows.find(r => String(r["Team Number"]) === t) || null;
+                        standsByTeam[t] = standsRows.filter(r => String(r["Team Number"]) === t);
                     });
 
                     document.getElementById("sn-modal-body").innerHTML =
                         buildAllianceModal(matchData, pitByTeam, standsByTeam);
                 }
 
-                // Team detail modal
                 if (teamPill && !matchHeader) {
                     e.stopPropagation();
                     const team     = teamPill.dataset.team;
@@ -401,14 +429,14 @@ export default async function Match() {
 
                     openModal(`Team ${team} · Summary`, `<p class="state-msg">Loading…</p>`);
 
-                    const [{ data: pitRows }, { data: standsRows }, tbaStatus] = await Promise.all([
-                        supabase.from(`${eventKey}-pit`).select("*").eq("Team Number", Number(team)),
-                        supabase.from(`${eventKey}-stands`).select("*").eq("Team Number", Number(team)),
+                    const [pitRows, standsRows, tbaStatus] = await Promise.all([
+                        getPitRowsSingle(eventKey, Number(team)),
+                        getStandsRowsSingle(eventKey, Number(team)),
                         tba(`/event/${eventKey}/teams/statuses`),
                     ]);
 
-                    const pit     = pitRows?.[0] || null;
-                    const stands  = standsRows   || [];
+                    const pit     = pitRows?.[0]  || null;
+                    const stands  = standsRows     || [];
                     const tbaRank = tbaStatus?.[`frc${team}`]?.qual?.ranking || null;
 
                     document.getElementById("sn-modal-body").innerHTML =
